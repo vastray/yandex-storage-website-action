@@ -2,37 +2,41 @@ name: "Yandex object storage static website"
 description: "Deploy static website to Yandex Object Storage"
 author: "Nikita Madeev"
 inputs:
-    access-key-id:
-        description: "Service account access key id"
-        default: ""
-        required: true
-    secret-access-key:
-        description: "Service account secret access key"
-        default: ""
-        required: true
-    bucket:
-        description: "Bucket name"
-        default: ""
-        required: true
-    include:
-        description: "Include patterns for files"
-        default: ""
-        required: false
-    working-directory:
-        description: "Specify the working directory of where to run the command"
-        default: ""
-        required: false
-    exclude:
-        description: "Exclude patterns for files"
-        default: ""
-        required: false
-    clear:
-        description: "Clear bucket before deploy"
-        default: false
-        required: false
+  access-key-id:
+    description: "Service account access key id"
+    default: ""
+    required: true
+  secret-access-key:
+    description: "Service account secret access key"
+    default: ""
+    required: true
+  bucket:
+    description: "Bucket name"
+    default: ""
+    required: true
+  include:
+    description: "Include patterns for files"
+    default: ""
+    required: false
+  working-directory:
+    description: "Specify the working directory of where to run the command"
+    default: ""
+    required: false
+  exclude:
+    description: "Exclude patterns for files"
+    default: ""
+    required: false
+  cache-control:
+    description: "Cache control rules in format 'cache-control-value: [patterns]'"
+    default: ""
+    required: false
+  clear:
+    description: "Clear bucket before deploy"
+    default: false
+    required: false
 runs:
-    using: "node16"
-    main: "dist/index.js"
+  using: "node16"
+  main: "dist/index.js"
 branding:
-    icon: "upload-cloud"
-    color: "blue"
+  icon: "upload-cloud"
+  color: "blue"
