@@ -9,7 +9,7 @@ type UploadOptions = {
   exclude: string[];
   include: string[];
   workingDirectory: string;
-  cacheControl: CacheControlRule[];
+  cacheControl?: CacheControlRule[];
 };
 
 export class S3Uploader {
@@ -34,7 +34,13 @@ export class S3Uploader {
   }
 
   public async upload(options: UploadOptions): Promise<unknown> {
-    const { clear, exclude, include, workingDirectory, cacheControl } = options;
+    const {
+      clear,
+      exclude,
+      include,
+      workingDirectory,
+      cacheControl = [],
+    } = options;
 
     this.log(`Include patterns: ${include.join(", ")}.`);
     this.log(`Exclude patterns: ${exclude.join(", ")}.`);

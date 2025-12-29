@@ -47728,10 +47728,23 @@ const inputs = {
     secretAccessKey: (0, inputs_1.getString)({ name: "secret-access-key", required: true }),
     bucket: (0, inputs_1.getString)({ name: "bucket", required: true }),
     // optional
-    workingDirectory: (0, inputs_1.getString)({ name: "working-directory", required: false, defaultValue: "" }),
-    include: (0, inputs_1.getMultiline)({ name: "include", required: false, defaultValue: ["**/*"] }),
+    workingDirectory: (0, inputs_1.getString)({
+        name: "working-directory",
+        required: false,
+        defaultValue: "",
+    }),
+    include: (0, inputs_1.getMultiline)({
+        name: "include",
+        required: false,
+        defaultValue: ["**/*"],
+    }),
     exclude: (0, inputs_1.getMultiline)({ name: "exclude", required: false, defaultValue: [] }),
     clear: (0, inputs_1.getBoolean)({ name: "clear", required: false, defaultValue: false }),
+    cacheControl: (0, inputs_1.getCacheControl)({
+        name: "cache-control",
+        required: false,
+        defaultValue: [],
+    }),
 };
 const s3Uploader = new s3_uploader_1.S3Uploader(new aws_s3_client_1.AWSS3Client({
     accessKeyId: inputs.accessKeyId,
@@ -47745,6 +47758,7 @@ s3Uploader
     workingDirectory: inputs.workingDirectory,
     exclude: inputs.exclude,
     include: inputs.include,
+    cacheControl: inputs.cacheControl,
 })
     .catch((err) => core.setFailed(err));
 
@@ -47763,15 +47777,20 @@ class AWSS3Client {
     client;
     bucket;
     constructor({ accessKeyId, endpoint, secretAccessKey, bucket }) {
-        this.client = new client_s3_1.S3Client({ endpoint, region: "ru-central1", credentials: { accessKeyId, secretAccessKey } });
+        this.client = new client_s3_1.S3Client({
+            endpoint,
+            region: "ru-central1",
+            credentials: { accessKeyId, secretAccessKey },
+        });
         this.bucket = bucket;
     }
-    async putObjects(key, body, contentType) {
+    async putObjects(key, body, contentType, cacheControl) {
         const command = new client_s3_1.PutObjectCommand({
             Bucket: this.bucket,
             Key: key,
             Body: body,
             ContentType: contentType,
+            ...(cacheControl && { CacheControl: cacheControl }),
         });
         await this.client.send(command);
     }
@@ -47868,7 +47887,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.getMultiline = exports.getBoolean = exports.getString = void 0;
+exports.getCacheControl = exports.getMultiline = exports.getBoolean = exports.getString = void 0;
 const core = __importStar(__nccwpck_require__(42186));
 function getString(options) {
     const { name, required } = options;
@@ -47911,6 +47930,41 @@ function getMultiline(options) {
     }
 }
 exports.getMultiline = getMultiline;
+function getCacheControl(options) {
+    const { name, defaultValue } = options;
+    const value = core.getMultilineInput(name, { required: false });
+    if (value.length === 0) {
+        return defaultValue;
+    }
+    const rules = [];
+    for (const line of value) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine)
+            continue;
+        // Parse format: "cache-control-value: ['pattern1', 'pattern2']"
+        const colonIndex = trimmedLine.indexOf(":");
+        if (colonIndex === -1) {
+            throw new Error(`Invalid cache-control format: "${line}". Expected format: "cache-control-value: ['pattern1', 'pattern2']"`);
+        }
+        const cacheControl = trimmedLine.substring(0, colonIndex).trim();
+        const patternsStr = trimmedLine.substring(colonIndex + 1).trim();
+        // Parse patterns array
+        let patterns = [];
+        try {
+            const parsed = JSON.parse(patternsStr);
+            if (!Array.isArray(parsed)) {
+                throw new Error("Patterns must be an array");
+            }
+            patterns = parsed;
+        }
+        catch (error) {
+            throw new Error(`Invalid patterns format in "${line}". Expected JSON array, got: "${patternsStr}"`);
+        }
+        rules.push({ cacheControl, patterns });
+    }
+    return rules;
+}
+exports.getCacheControl = getCacheControl;
 
 
 /***/ }),
@@ -47929,6 +47983,7 @@ const async_1 = __importDefault(__nccwpck_require__(57888));
 const fs_1 = __importDefault(__nccwpck_require__(57147));
 const mime_types_1 = __importDefault(__nccwpck_require__(43583));
 const path_1 = __importDefault(__nccwpck_require__(71017));
+const minimatch_1 = __nccwpck_require__(61953);
 class S3Uploader {
     s3client;
     filesManager;
@@ -47938,25 +47993,48 @@ class S3Uploader {
         this.filesManager = filesManager;
         this.log = log;
     }
+    getCacheControlForFile(filePath, cacheControlRules) {
+        for (const rule of cacheControlRules) {
+            for (const pattern of rule.patterns) {
+                if ((0, minimatch_1.minimatch)(filePath, pattern, { matchBase: true })) {
+                    return rule.cacheControl;
+                }
+            }
+        }
+        return undefined;
+    }
     async upload(options) {
-        const { clear, exclude, include, workingDirectory } = options;
+        const { clear, exclude, include, workingDirectory, cacheControl = [], } = options;
         this.log(`Include patterns: ${include.join(", ")}.`);
         this.log(`Exclude patterns: ${exclude.join(", ")}.`);
         if (workingDirectory)
             this.log(`Working directory: ${workingDirectory}.`);
+        if (cacheControl.length > 0) {
+            this.log(`Cache control rules configured: ${cacheControl.length} rule(s).`);
+        }
         if (clear) {
             const count = await this.s3client.clearBucket();
             this.log(`Successfully deleted ${count} objects from S3 bucket.`);
         }
-        const files = this.filesManager.getFiles({ exclude, include, workingDirectory });
+        const files = this.filesManager.getFiles({
+            exclude,
+            include,
+            workingDirectory,
+        });
         this.log(`Found ${files.length} files to upload.`);
         return new Promise((resolve, reject) => {
             async_1.default.eachOfLimit(files, 10, async_1.default.asyncify(async (file) => {
                 const contentType = mime_types_1.default.lookup(file) || "application/octet-stream";
                 // Remove working-directory
                 const key = path_1.default.relative(workingDirectory, file);
-                this.log(`Uploading: ${key} (${contentType})...`);
-                await this.s3client.putObjects(key, fs_1.default.readFileSync(file), contentType);
+                const cacheControlValue = this.getCacheControlForFile(key, cacheControl);
+                if (cacheControlValue) {
+                    this.log(`Uploading: ${key} (${contentType}) [cache-control: ${cacheControlValue}]...`);
+                }
+                else {
+                    this.log(`Uploading: ${key} (${contentType})...`);
+                }
+                await this.s3client.putObjects(key, fs_1.default.readFileSync(file), contentType, cacheControlValue);
             }), (err) => {
                 if (err) {
                     return reject(new Error(err.message));
