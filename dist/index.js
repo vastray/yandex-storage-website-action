@@ -47947,11 +47947,14 @@ function getCacheControl(options) {
             throw new Error(`Invalid cache-control format: "${line}". Expected format: "cache-control-value: ['pattern1', 'pattern2']"`);
         }
         const cacheControl = trimmedLine.substring(0, colonIndex).trim();
-        const patternsStr = trimmedLine.substring(colonIndex + 1).trim();
-        // Parse patterns array
+        let patternsStr = trimmedLine.substring(colonIndex + 1).trim();
+        // Parse patterns array - support both single and double quotes
         let patterns = [];
         try {
-            const parsed = JSON.parse(patternsStr);
+            // Convert single quotes to double quotes for JSON parsing
+            // This handles YAML-style arrays like ['pattern1', 'pattern2']
+            const jsonStr = patternsStr.replace(/'/g, '"');
+            const parsed = JSON.parse(jsonStr);
             if (!Array.isArray(parsed)) {
                 throw new Error("Patterns must be an array");
             }
